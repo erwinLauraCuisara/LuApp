@@ -1,0 +1,45 @@
+## Android / Gradle
+*.iml
+.gradle/
+/local.properties
+local.properties
+/build
+/captures
+.externalNativeBuild/
+.cxx/
+
+## APKs, AABs, keystores (nunca en el repo)
+*.apk
+*.aab
+*.jks
+*.keystore
+keystore.properties
+
+## Android Studio / IntelliJ IDEA
+/.idea/caches/
+/.idea/libraries/
+/.idea/modules.xml
+/.idea/workspace.xml
+/.idea/navEditor.xml
+/.idea/assetWizardSettings.xml
+/.idea/.name
+/.idea/deploymentTargetDropDown.xml
+/.idea/migrations.xml
+/.idea/androidTestResultsUserPreferences.xml
+/.idea/uiDesigner.xml
+/.idea/compiler.xml
+*.ipr
+
+## Kotlin build artifacts
+/kotlin-build/
+**/.kotlin/
+
+## macOS
+.DS_Store
+
+## Windows
+Thumbs.db
+ehthumbs.db
+
+## Linux
+*~
