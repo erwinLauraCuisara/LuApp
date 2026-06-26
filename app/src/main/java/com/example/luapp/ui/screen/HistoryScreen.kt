@@ -27,6 +27,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.example.luapp.data.db.DatabaseHelper
 import com.example.luapp.data.model.HistoryItem
@@ -153,11 +154,14 @@ fun HistoryScreen(onSelectRegister: (Long) -> Unit = {}, modifier: Modifier = Mo
                                 }
                             }
                             HorizontalDivider()
+                            val net = item.consumptionTotal - item.expenseTotal
+                            val netColor = if (net >= 0) Color(0xFF2E7D32) else MaterialTheme.colorScheme.error
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                Text("Neto", style = MaterialTheme.typography.titleSmall)
+                                Text("Neto", style = MaterialTheme.typography.titleSmall, color = netColor)
                                 Text(
-                                    "Bs %.2f".format(item.consumptionTotal - item.expenseTotal),
-                                    style = MaterialTheme.typography.titleSmall
+                                    "Bs %.2f".format(net),
+                                    style = MaterialTheme.typography.titleSmall,
+                                    color = netColor
                                 )
                             }
                         }

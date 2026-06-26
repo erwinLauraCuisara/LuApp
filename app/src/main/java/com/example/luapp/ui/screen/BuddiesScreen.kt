@@ -7,13 +7,23 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -60,31 +70,62 @@ fun BuddiesScreen(modifier: Modifier = Modifier) {
     LaunchedEffect(Unit) { loadBuddies() }
 
     Box(modifier = modifier.fillMaxSize()) {
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(16.dp)
-        ) {
-            items(buddies, key = { it.id }) { buddy ->
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = buddy.name,
-                        modifier = Modifier.weight(1f),
-                        style = MaterialTheme.typography.bodyLarge
+        if (buddies.isEmpty()) {
+            Text(
+                "No hay chicas registradas",
+                modifier = Modifier.align(Alignment.Center),
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        } else {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(bottom = 80.dp)
+            ) {
+                items(buddies, key = { it.id }) { buddy ->
+                    ListItem(
+                        headlineContent = {
+                            Text(buddy.name, style = MaterialTheme.typography.bodyLarge)
+                        },
+                        leadingContent = {
+                            Surface(
+                                shape = CircleShape,
+                                color = MaterialTheme.colorScheme.primaryContainer,
+                                modifier = Modifier.size(44.dp)
+                            ) {
+                                Box(
+                                    contentAlignment = Alignment.Center,
+                                    modifier = Modifier.fillMaxSize()
+                                ) {
+                                    Text(
+                                        text = buddy.name.firstOrNull()?.uppercaseChar()?.toString() ?: "?",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                                    )
+                                }
+                            }
+                        },
+                        trailingContent = {
+                            Row {
+                                IconButton(onClick = { editingBuddy = buddy; dialogName = buddy.name }) {
+                                    Icon(
+                                        Icons.Default.Edit,
+                                        contentDescription = "Editar",
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                                IconButton(onClick = { buddyToDelete = buddy }) {
+                                    Icon(
+                                        Icons.Default.Delete,
+                                        contentDescription = "Eliminar",
+                                        tint = MaterialTheme.colorScheme.error
+                                    )
+                                }
+                            }
+                        }
                     )
-                    TextButton(onClick = {
-                        editingBuddy = buddy
-                        dialogName = buddy.name
-                    }) { Text("Editar") }
-                    TextButton(onClick = { buddyToDelete = buddy }) {
-                        Text("Eliminar", color = MaterialTheme.colorScheme.error)
-                    }
+                    HorizontalDivider()
                 }
-                HorizontalDivider()
             }
         }
 
@@ -92,9 +133,11 @@ fun BuddiesScreen(modifier: Modifier = Modifier) {
             onClick = { dialogName = ""; showAddDialog = true },
             modifier = Modifier
                 .align(Alignment.BottomEnd)
-                .padding(16.dp)
+                .padding(16.dp),
+            containerColor = MaterialTheme.colorScheme.primary,
+            contentColor = MaterialTheme.colorScheme.onPrimary
         ) {
-            Text("+", style = MaterialTheme.typography.headlineMedium)
+            Icon(Icons.Default.Add, contentDescription = "Agregar chica")
         }
     }
 
@@ -156,7 +199,7 @@ fun BuddiesScreen(modifier: Modifier = Modifier) {
                             editingBuddy = null
                         }
                     }
-                ) { Text("Editar") }
+                ) { Text("Guardar") }
             },
             dismissButton = {
                 TextButton(onClick = { editingBuddy = null }) { Text("Cancelar") }

@@ -20,16 +20,20 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -120,28 +124,31 @@ fun ExpenseScreen(modifier: Modifier = Modifier) {
     val totalAmount = expenses.sumOf { it.amount }
 
     Column(modifier = modifier.fillMaxSize()) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically
+        Surface(
+            color = MaterialTheme.colorScheme.secondaryContainer,
+            contentColor = MaterialTheme.colorScheme.onSecondaryContainer
         ) {
-            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text("Total gastos: Bs %.2f".format(totalAmount), style = MaterialTheme.typography.titleMedium)
-                if (cashRegisterOpenedAt != null)
-                    Text(
-                        "Desde ${dateFormat.format(Date(cashRegisterOpenedAt!!))}",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-            }
-            if (activeCashRegisterId != null) {
-                TextButton(onClick = { showCloseConfirm = true }) {
-                    Text("Cerrar caja", color = MaterialTheme.colorScheme.error)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Text("Bs %.2f".format(totalAmount), style = MaterialTheme.typography.headlineMedium)
+                    if (cashRegisterOpenedAt != null)
+                        Text(
+                            "Desde ${dateFormat.format(Date(cashRegisterOpenedAt!!))}",
+                            style = MaterialTheme.typography.labelSmall
+                        )
+                }
+                if (activeCashRegisterId != null) {
+                    TextButton(onClick = { showCloseConfirm = true }) {
+                        Text("Cerrar caja", color = MaterialTheme.colorScheme.error)
+                    }
                 }
             }
         }
-        HorizontalDivider()
 
         Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
             if (expenses.isEmpty()) {
@@ -169,9 +176,11 @@ fun ExpenseScreen(modifier: Modifier = Modifier) {
 
             FloatingActionButton(
                 onClick = { resetForm(); showForm = true },
-                modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp)
+                modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary
             ) {
-                Text("+", style = MaterialTheme.typography.headlineMedium)
+                Icon(Icons.Default.Add, contentDescription = "Agregar gasto")
             }
         }
     }
