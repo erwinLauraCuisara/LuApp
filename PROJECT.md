@@ -3,15 +3,18 @@
 ## Qué es
 App Android para administrar el negocio de un local nocturno/bar. Registra consumos de clientes, gastos del local, y las chicas (hostesses/buddies) asociadas a cada consumo. Todo se agrupa en "cajas" que se abren y cierran como cortes de turno.
 
-## Schema de la BD (SQLite, versión 4)
+## Schema de la BD (SQLite, versión 6)
 
 ```
-cash_registers   → id, opened_at, closed_at (NULL = activa)
-buddies          → id, name
-consumptions     → id, cash_register_id*, concept, customer_name?, buddy_id?, amount,
-                   appointment_fee, pending_amount?, details?, created_at
-expenses         → id, cash_register_id*, concept, amount, details?, created_at
+cash_registers      → id, opened_at, closed_at (NULL = activa)
+buddies             → id, name
+consumptions        → id, cash_register_id*, concept, customer_name?,
+                      amount (efectivo, default 0), amount_qr (default 0),
+                      appointment_fee, pending_amount?, details?, created_at
+consumption_buddies → consumption_id*, buddy_id*  (PK compuesta, N:N)
+expenses            → id, cash_register_id*, concept, amount, details?, created_at
 ```
+`buddy_id` en `consumptions` está obsoleto (conservado para compatibilidad); los datos de chicas van en `consumption_buddies`.
 `*` FK a cash_registers. La caja activa es la que tiene `closed_at IS NULL`.
 
 ## Lógica de caja (cash register)

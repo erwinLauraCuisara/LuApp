@@ -117,12 +117,18 @@ fun generateCashRegisterPdf(
     hline(thick)
 
     // ── Resumen ──
-    val totC = consumptions.sumOf { it.amount }
+    val totC = consumptions.sumOf { it.amount + it.amountQr }
+    val totCash = consumptions.sumOf { it.amount }
+    val totQr = consumptions.sumOf { it.amountQr }
     val totE = expenses.sumOf { it.amount }
     val totD = consumptions.sumOf { it.pendingAmount ?: 0.0 }
 
     section("RESUMEN")
     row("Consumos", "Bs %.2f".format(totC))
+    if (totQr > 0) {
+        row("  Efectivo", "Bs %.2f".format(totCash), small, small)
+        row("  QR", "Bs %.2f".format(totQr), small, small)
+    }
     row("Gastos", "Bs %.2f".format(totE))
     if (totD > 0) row("Deudas pendientes", "Bs %.2f".format(totD), errPaint)
     // Thin divider above NETO: sits below last row (already 20f below its baseline)
@@ -132,10 +138,19 @@ fun generateCashRegisterPdf(
     nl(10f)
 
     // ── Pago a chicas ──
-    val buddies = consumptions
-        .filter { it.buddyId != null }
-        .groupBy { it.buddyId!! }
-        .map { (_, items) -> items.first().buddyName.orEmpty().ifEmpty { "Sin nombre" } to items.sumOf { it.appointmentFee } }
+    val buddyShareMap = mutableMapOf<Long, Double>()
+    val buddyNameMap = mutableMapOf<Long, String>()
+    consumptions.forEach { c ->
+        val n = c.buddyIds.size
+        if (n == 0) return@forEach
+        val share = c.appointmentFee / n
+        c.buddyIds.forEachIndexed { i, id ->
+            buddyShareMap[id] = (buddyShareMap[id] ?: 0.0) + share
+            buddyNameMap[id] = c.buddyNames.getOrElse(i) { "?" }
+        }
+    }
+    val buddies = buddyShareMap.entries
+        .map { (id, total) -> buddyNameMap[id]!! to total }
         .sortedBy { it.first }
 
     if (buddies.isNotEmpty()) {
@@ -155,20 +170,29 @@ fun generateCashRegisterPdf(
         nl(20f)
     } else {
         consumptions.forEach { item ->
-            val hasMeta = item.customerName != null || item.buddyName != null
+            val hasMeta = item.customerName != null || item.buddyNames.isNotEmpty()
             val hasFin  = item.appointmentFee > 0 || (item.pendingAmount ?: 0.0) > 0
             val lineCount = 3 + (if (hasMeta) 1 else 0) + (if (hasFin) 1 else 0)
             need(lineCount * 16f + 20f)
 
             // Concept + amount
             canvas?.drawText(trunc(item.concept, CW * 0.65f, body), ML, y, body)
-            right("Bs %.2f".format(item.amount), body)
+            right("Bs %.2f".format(item.amount + item.amountQr), body)
             nl(16f)
+            if (item.amountQr > 0) {
+                val breakdown = buildString {
+                    if (item.amount > 0) append("Efectivo: Bs %.2f".format(item.amount))
+                    if (item.amount > 0 && item.amountQr > 0) append("  /  ")
+                    append("QR: Bs %.2f".format(item.amountQr))
+                }
+                canvas?.drawText(trunc(breakdown, CW, small), ML, y, small)
+                nl(14f)
+            }
 
             // Customer / buddy
             val meta = listOfNotNull(
                 item.customerName?.let { "Cliente: $it" },
-                item.buddyName?.let { "Chica: $it" }
+                if (item.buddyNames.isNotEmpty()) "Chica${if (item.buddyNames.size > 1) "s" else ""}: ${item.buddyNames.joinToString(", ")}" else null
             )
             if (meta.isNotEmpty()) {
                 canvas?.drawText(trunc(meta.joinToString("  /  "), CW, small), ML, y, small)

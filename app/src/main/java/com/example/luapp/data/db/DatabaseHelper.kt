@@ -5,7 +5,7 @@ import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
 
-class DatabaseHelper(context: Context) : SQLiteOpenHelper(context, "luapp.db", null, 4) {
+class DatabaseHelper(context: Context) : SQLiteOpenHelper(context, "luapp.db", null, 6) {
 
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL("""
@@ -30,11 +30,20 @@ class DatabaseHelper(context: Context) : SQLiteOpenHelper(context, "luapp.db", n
                 concept TEXT NOT NULL,
                 customer_name TEXT,
                 buddy_id INTEGER REFERENCES buddies(id) ON DELETE SET NULL,
-                amount REAL NOT NULL,
+                amount REAL NOT NULL DEFAULT 0,      -- monto efectivo
+                amount_qr REAL NOT NULL DEFAULT 0,
                 appointment_fee REAL NOT NULL DEFAULT 0,
                 pending_amount REAL,
                 details TEXT,
                 created_at INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000)
+            )
+        """)
+
+        db.execSQL("""
+            CREATE TABLE consumption_buddies (
+                consumption_id INTEGER NOT NULL REFERENCES consumptions(id) ON DELETE CASCADE,
+                buddy_id INTEGER NOT NULL REFERENCES buddies(id) ON DELETE CASCADE,
+                PRIMARY KEY (consumption_id, buddy_id)
             )
         """)
 
@@ -51,14 +60,34 @@ class DatabaseHelper(context: Context) : SQLiteOpenHelper(context, "luapp.db", n
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
-        db.execSQL("DROP TABLE IF EXISTS cash_close_expense")
-        db.execSQL("DROP TABLE IF EXISTS cash_close_consumption")
-        db.execSQL("DROP TABLE IF EXISTS cash_closes")
-        db.execSQL("DROP TABLE IF EXISTS expenses")
-        db.execSQL("DROP TABLE IF EXISTS consumptions")
-        db.execSQL("DROP TABLE IF EXISTS buddies")
-        db.execSQL("DROP TABLE IF EXISTS cash_registers")
-        onCreate(db)
+        if (oldVersion < 4) {
+            db.execSQL("DROP TABLE IF EXISTS cash_close_expense")
+            db.execSQL("DROP TABLE IF EXISTS cash_close_consumption")
+            db.execSQL("DROP TABLE IF EXISTS cash_closes")
+            db.execSQL("DROP TABLE IF EXISTS expenses")
+            db.execSQL("DROP TABLE IF EXISTS consumptions")
+            db.execSQL("DROP TABLE IF EXISTS buddies")
+            db.execSQL("DROP TABLE IF EXISTS cash_registers")
+            onCreate(db)
+            return
+        }
+        if (oldVersion < 5) {
+            db.execSQL("ALTER TABLE consumptions ADD COLUMN amount_qr REAL NOT NULL DEFAULT 0")
+        }
+        if (oldVersion < 6) {
+            db.execSQL("""
+                CREATE TABLE consumption_buddies (
+                    consumption_id INTEGER NOT NULL REFERENCES consumptions(id) ON DELETE CASCADE,
+                    buddy_id INTEGER NOT NULL REFERENCES buddies(id) ON DELETE CASCADE,
+                    PRIMARY KEY (consumption_id, buddy_id)
+                )
+            """)
+            // Migrate existing single-buddy relationships
+            db.execSQL("""
+                INSERT OR IGNORE INTO consumption_buddies (consumption_id, buddy_id)
+                SELECT id, buddy_id FROM consumptions WHERE buddy_id IS NOT NULL
+            """)
+        }
     }
 
     override fun onConfigure(db: SQLiteDatabase) {

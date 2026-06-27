@@ -28,6 +28,7 @@ import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -92,9 +93,10 @@ fun CashRegisterDetailScreen(cashRegisterId: Long, onBack: () -> Unit) {
     var editingConsumptionId by remember { mutableStateOf<Long?>(null) }
     var cFormConcept by remember { mutableStateOf("") }
     var cFormCustomerName by remember { mutableStateOf("") }
-    var cFormAmount by remember { mutableStateOf("") }
-    var cFormBuddyId by remember { mutableStateOf<Long?>(null) }
-    var cFormBuddyName by remember { mutableStateOf("") }
+    var cFormAmountCash by remember { mutableStateOf("") }
+    var cFormAmountQr by remember { mutableStateOf("") }
+    var cFormBuddies by remember { mutableStateOf<List<Buddy>>(emptyList()) }
+    var cTempBuddies by remember { mutableStateOf<List<Buddy>>(emptyList()) }
     var cFormFee by remember { mutableStateOf("") }
     var cFormPending by remember { mutableStateOf("") }
     var cFormDetails by remember { mutableStateOf("") }
@@ -110,11 +112,11 @@ fun CashRegisterDetailScreen(cashRegisterId: Long, onBack: () -> Unit) {
     var eFormAmount by remember { mutableStateOf("") }
     var eFormDetails by remember { mutableStateOf("") }
 
-    var viewingBuddyPayment by remember { mutableStateOf<Pair<String, List<ConsumptionItem>>?>(null) }
+    var viewingBuddyPayment by remember { mutableStateOf<Triple<String, List<ConsumptionItem>, Double>?>(null) }
 
     fun resetConsumptionForm() {
-        cFormConcept = ""; cFormCustomerName = ""; cFormAmount = ""
-        cFormBuddyId = null; cFormBuddyName = ""; cFormFee = ""
+        cFormConcept = ""; cFormCustomerName = ""; cFormAmountCash = ""; cFormAmountQr = ""
+        cFormBuddies = emptyList(); cFormFee = ""
         cFormPending = ""; cFormDetails = ""; editingConsumptionId = null
     }
 
@@ -133,24 +135,43 @@ fun CashRegisterDetailScreen(cashRegisterId: Long, onBack: () -> Unit) {
 
             val cList = mutableListOf<ConsumptionItem>()
             val cCursor = db.readableDatabase.rawQuery("""
-                SELECT c.id, c.concept, c.customer_name, c.buddy_id, b.name, c.amount, c.appointment_fee, c.pending_amount, c.details, c.created_at
-                FROM consumptions c LEFT JOIN buddies b ON c.buddy_id = b.id
-                WHERE c.cash_register_id = ? ORDER BY c.created_at DESC
+                SELECT id, concept, customer_name, amount, appointment_fee, pending_amount, details, created_at, amount_qr
+                FROM consumptions
+                WHERE cash_register_id = ? ORDER BY created_at DESC
             """.trimIndent(), arrayOf(cashRegisterId.toString()))
             while (cCursor.moveToNext()) {
                 cList.add(ConsumptionItem(
                     id = cCursor.getLong(0), concept = cCursor.getString(1),
                     customerName = if (cCursor.isNull(2)) null else cCursor.getString(2),
-                    buddyId = if (cCursor.isNull(3)) null else cCursor.getLong(3),
-                    buddyName = if (cCursor.isNull(4)) null else cCursor.getString(4),
-                    amount = cCursor.getDouble(5), appointmentFee = cCursor.getDouble(6),
-                    pendingAmount = if (cCursor.isNull(7)) null else cCursor.getDouble(7),
-                    details = if (cCursor.isNull(8)) null else cCursor.getString(8),
-                    createdAt = cCursor.getLong(9)
+                    amount = cCursor.getDouble(3), appointmentFee = cCursor.getDouble(4),
+                    pendingAmount = if (cCursor.isNull(5)) null else cCursor.getDouble(5),
+                    details = if (cCursor.isNull(6)) null else cCursor.getString(6),
+                    createdAt = cCursor.getLong(7),
+                    amountQr = cCursor.getDouble(8)
                 ))
             }
             cCursor.close()
-            consumptions = cList
+            if (cList.isNotEmpty()) {
+                val ids = cList.joinToString(",") { it.id.toString() }
+                val buddyMap = mutableMapOf<Long, MutableList<Pair<Long, String>>>()
+                val cbCursor = db.readableDatabase.rawQuery("""
+                    SELECT cb.consumption_id, cb.buddy_id, b.name
+                    FROM consumption_buddies cb JOIN buddies b ON cb.buddy_id = b.id
+                    WHERE cb.consumption_id IN ($ids)
+                    ORDER BY b.name
+                """, null)
+                while (cbCursor.moveToNext()) {
+                    buddyMap.getOrPut(cbCursor.getLong(0)) { mutableListOf() }
+                        .add(cbCursor.getLong(1) to cbCursor.getString(2))
+                }
+                cbCursor.close()
+                consumptions = cList.map { c ->
+                    val pairs = buddyMap[c.id] ?: emptyList()
+                    c.copy(buddyIds = pairs.map { it.first }, buddyNames = pairs.map { it.second })
+                }
+            } else {
+                consumptions = cList
+            }
 
             val eList = mutableListOf<ExpenseItem>()
             val eCursor = db.readableDatabase.rawQuery(
@@ -179,17 +200,29 @@ fun CashRegisterDetailScreen(cashRegisterId: Long, onBack: () -> Unit) {
     LaunchedEffect(cashRegisterId) { loadData() }
     BackHandler { onBack() }
 
-    val totalConsumptions = consumptions.sumOf { it.amount }
+    val totalConsumptions = consumptions.sumOf { it.amount + it.amountQr }
+    val totalCash = consumptions.sumOf { it.amount }
+    val totalQr = consumptions.sumOf { it.amountQr }
     val totalExpenses = expenses.sumOf { it.amount }
     val totalDebts = consumptions.sumOf { it.pendingAmount ?: 0.0 }
-    val buddyPayments = consumptions
-        .filter { it.buddyId != null }
-        .groupBy { it.buddyId!! }
-        .map { (_, items) ->
-            val name = items.first().buddyName.orEmpty().ifEmpty { "Sin nombre" }
-            name to items.sortedByDescending { it.createdAt }
+    val buddyPayments: List<Triple<String, List<ConsumptionItem>, Double>> = run {
+        val shareMap = mutableMapOf<Long, Double>()
+        val nameMap = mutableMapOf<Long, String>()
+        val consMap = mutableMapOf<Long, MutableList<ConsumptionItem>>()
+        consumptions.forEach { c ->
+            val n = c.buddyIds.size
+            if (n == 0) return@forEach
+            val share = c.appointmentFee / n
+            c.buddyIds.forEachIndexed { i, id ->
+                shareMap[id] = (shareMap[id] ?: 0.0) + share
+                nameMap[id] = c.buddyNames.getOrElse(i) { "?" }
+                consMap.getOrPut(id) { mutableListOf() }.add(c)
+            }
         }
-        .sortedBy { it.first }
+        shareMap.keys.map { id ->
+            Triple(nameMap[id]!!, consMap[id]!! as List<ConsumptionItem>, shareMap[id]!!)
+        }.sortedBy { it.first }
+    }
 
     Scaffold(
         topBar = {
@@ -244,6 +277,16 @@ fun CashRegisterDetailScreen(cashRegisterId: Long, onBack: () -> Unit) {
                         Text("Cierre: ${dateFormat.format(Date(closedAt))}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         HorizontalDivider()
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { Text("Consumos"); Text("Bs %.2f".format(totalConsumptions)) }
+                        if (totalQr > 0) {
+                            Row(modifier = Modifier.fillMaxWidth().padding(start = 12.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("Efectivo", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text("Bs %.2f".format(totalCash), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            Row(modifier = Modifier.fillMaxWidth().padding(start = 12.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("QR", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text("Bs %.2f".format(totalQr), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { Text("Gastos"); Text("Bs %.2f".format(totalExpenses)) }
                         if (totalDebts > 0)
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -263,12 +306,12 @@ fun CashRegisterDetailScreen(cashRegisterId: Long, onBack: () -> Unit) {
             if (buddyPayments.isEmpty()) {
                 item { Text("Sin chicas asignadas", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(start = 8.dp)) }
             } else {
-                items(buddyPayments, key = { it.first }) { (name, items) ->
+                items(buddyPayments, key = { it.first }) { (name, cons, total) ->
                     ListItem(
                         headlineContent = { Text(name) },
-                        supportingContent = { Text("${items.size} consumo${if (items.size != 1) "s" else ""}") },
-                        trailingContent = { Text("Bs %.2f".format(items.sumOf { it.appointmentFee })) },
-                        modifier = Modifier.clickable { viewingBuddyPayment = name to items }
+                        supportingContent = { Text("${cons.size} consumo${if (cons.size != 1) "s" else ""}") },
+                        trailingContent = { Text("Bs %.2f".format(total)) },
+                        modifier = Modifier.clickable { viewingBuddyPayment = Triple(name, cons, total) }
                     )
                     HorizontalDivider()
                 }
@@ -284,12 +327,12 @@ fun CashRegisterDetailScreen(cashRegisterId: Long, onBack: () -> Unit) {
                         supportingContent = {
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 if (item.customerName != null) Text(item.customerName, style = MaterialTheme.typography.bodySmall)
-                                if (item.buddyName != null) Text(item.buddyName, style = MaterialTheme.typography.bodySmall)
+                                if (item.buddyNames.isNotEmpty()) Text(item.buddyNames.joinToString(", "), style = MaterialTheme.typography.bodySmall)
                                 if (item.pendingAmount != null && item.pendingAmount > 0)
                                     Text("⚠ Con deuda", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
                             }
                         },
-                        trailingContent = { Text("Bs %.2f".format(item.amount)) },
+                        trailingContent = { Text("Bs %.2f".format(item.amount + item.amountQr)) },
                         modifier = Modifier.clickable { viewingConsumption = item }
                     )
                     HorizontalDivider()
@@ -313,25 +356,26 @@ fun CashRegisterDetailScreen(cashRegisterId: Long, onBack: () -> Unit) {
     }
 
     // ─── Buddy payment detail dialog ───
-    viewingBuddyPayment?.let { (name, items) ->
+    viewingBuddyPayment?.let { (name, items, total) ->
         AlertDialog(
             onDismissRequest = { viewingBuddyPayment = null },
             title = { Text(name) },
             text = {
                 Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
                     Row(modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text("Total a pagar", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text("Bs %.2f".format(items.sumOf { it.appointmentFee }), style = MaterialTheme.typography.labelMedium)
+                        Text("Total a cobrar", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("Bs %.2f".format(total), style = MaterialTheme.typography.labelMedium)
                     }
                     HorizontalDivider()
                     Spacer(Modifier.height(6.dp))
-                    items.forEach { item ->
+                    items.sortedByDescending { it.createdAt }.forEach { item ->
+                        val share = item.appointmentFee / item.buddyIds.size
                         Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Top) {
                             Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
                                 Text(item.concept, style = MaterialTheme.typography.bodyMedium)
                                 Text(dateFormat.format(Date(item.createdAt)), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
-                            Text("Bs %.2f".format(item.appointmentFee))
+                            Text("Bs %.2f".format(share))
                         }
                         HorizontalDivider()
                     }
@@ -350,8 +394,16 @@ fun CashRegisterDetailScreen(cashRegisterId: Long, onBack: () -> Unit) {
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     if (item.customerName != null) Text("Cliente: ${item.customerName}")
-                    if (item.buddyName != null) Text("Chica: ${item.buddyName}")
-                    Text("Monto: Bs %.2f".format(item.amount))
+                    if (item.buddyNames.isNotEmpty())
+                        Text("Chica${if (item.buddyNames.size > 1) "s" else ""}: ${item.buddyNames.joinToString(", ")}")
+                    if (item.amountQr == 0.0) {
+                        Text("Monto: Bs %.2f".format(item.amount))
+                    } else if (item.amount == 0.0) {
+                        Text("Monto QR: Bs %.2f".format(item.amountQr))
+                    } else {
+                        Text("Efectivo: Bs %.2f".format(item.amount))
+                        Text("QR: Bs %.2f".format(item.amountQr))
+                    }
                     if (item.appointmentFee > 0) Text("Comisión: Bs %.2f".format(item.appointmentFee))
                     if (item.pendingAmount != null && item.pendingAmount > 0)
                         Text("⚠ Deuda pendiente: Bs %.2f".format(item.pendingAmount), color = MaterialTheme.colorScheme.error)
@@ -368,8 +420,9 @@ fun CashRegisterDetailScreen(cashRegisterId: Long, onBack: () -> Unit) {
                 TextButton(onClick = {
                     editingConsumptionId = item.id
                     cFormConcept = item.concept; cFormCustomerName = item.customerName ?: ""
-                    cFormAmount = item.amount.toString(); cFormBuddyId = item.buddyId
-                    cFormBuddyName = item.buddyName ?: ""
+                    cFormAmountCash = if (item.amount > 0) item.amount.toString() else ""
+                    cFormAmountQr = if (item.amountQr > 0) item.amountQr.toString() else ""
+                    cFormBuddies = buddies.filter { it.id in item.buddyIds }
                     cFormFee = if (item.appointmentFee > 0) item.appointmentFee.toString() else ""
                     cFormPending = if (item.pendingAmount != null && item.pendingAmount > 0) item.pendingAmount.toString() else ""
                     cFormDetails = item.details ?: ""
@@ -382,7 +435,7 @@ fun CashRegisterDetailScreen(cashRegisterId: Long, onBack: () -> Unit) {
 
     // ─── Consumption edit sheet ───
     if (showConsumptionForm) {
-        val canSave = cFormConcept.isNotBlank() && cFormAmount.toDoubleOrNull() != null
+        val canSave = cFormConcept.isNotBlank()
         ModalBottomSheet(onDismissRequest = { showConsumptionForm = false; resetConsumptionForm() }, sheetState = consumptionSheetState, modifier = Modifier.fillMaxHeight()) {
             Column(modifier = Modifier.fillMaxSize().imePadding()) {
                 Column(
@@ -391,14 +444,15 @@ fun CashRegisterDetailScreen(cashRegisterId: Long, onBack: () -> Unit) {
                 ) {
                     Text("Editar consumo", style = MaterialTheme.typography.titleLarge)
                     OutlinedTextField(value = cFormConcept, onValueChange = { cFormConcept = it }, label = { Text("Concepto *") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
-                    OutlinedTextField(value = cFormAmount, onValueChange = { cFormAmount = it }, label = { Text("Monto *") }, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), singleLine = true, prefix = { Text("Bs") })
-                    OutlinedCard(onClick = { buddySearch = ""; showBuddyPicker = true }, modifier = Modifier.fillMaxWidth()) {
+                    OutlinedTextField(value = cFormAmountCash, onValueChange = { cFormAmountCash = it }, label = { Text("Monto efectivo (opcional)") }, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), singleLine = true, prefix = { Text("Bs") })
+                    OutlinedTextField(value = cFormAmountQr, onValueChange = { cFormAmountQr = it }, label = { Text("Monto QR (opcional)") }, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), singleLine = true, prefix = { Text("Bs") })
+                    OutlinedCard(onClick = { buddySearch = ""; cTempBuddies = cFormBuddies; showBuddyPicker = true }, modifier = Modifier.fillMaxWidth()) {
                         Row(modifier = Modifier.padding(16.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                             Column(modifier = Modifier.weight(1f)) {
-                                Text("Chica (opcional)", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                Text(if (cFormBuddyName.isNotBlank()) cFormBuddyName else "Sin asignar")
+                                Text("Chicas (opcional)", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(if (cFormBuddies.isEmpty()) "Sin asignar" else cFormBuddies.joinToString(", ") { it.name })
                             }
-                            if (cFormBuddyId != null) TextButton(onClick = { cFormBuddyId = null; cFormBuddyName = "" }) { Text("Quitar") }
+                            if (cFormBuddies.isNotEmpty()) TextButton(onClick = { cFormBuddies = emptyList() }) { Text("Quitar") }
                         }
                     }
                     OutlinedTextField(value = cFormCustomerName, onValueChange = { cFormCustomerName = it }, label = { Text("Nombre cliente (opcional)") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
@@ -412,19 +466,26 @@ fun CashRegisterDetailScreen(cashRegisterId: Long, onBack: () -> Unit) {
                     Spacer(Modifier.width(8.dp))
                     Button(enabled = canSave, onClick = {
                         scope.launch {
-                            val amount = cFormAmount.toDoubleOrNull() ?: return@launch
                             withContext(Dispatchers.IO) {
                                 val values = ContentValues().apply {
                                     put("concept", cFormConcept.trim())
                                     if (cFormCustomerName.isNotBlank()) put("customer_name", cFormCustomerName.trim()) else putNull("customer_name")
-                                    put("amount", amount)
+                                    put("amount", cFormAmountCash.toDoubleOrNull() ?: 0.0)
+                                    put("amount_qr", cFormAmountQr.toDoubleOrNull() ?: 0.0)
                                     put("appointment_fee", cFormFee.toDoubleOrNull() ?: 0.0)
-                                    if (cFormBuddyId != null) put("buddy_id", cFormBuddyId) else putNull("buddy_id")
+                                    putNull("buddy_id")
                                     val pending = cFormPending.toDoubleOrNull()
                                     if (pending != null && pending > 0) put("pending_amount", pending) else putNull("pending_amount")
                                     if (cFormDetails.isNotBlank()) put("details", cFormDetails.trim()) else putNull("details")
                                 }
                                 db.writableDatabase.update("consumptions", values, "id = ?", arrayOf(editingConsumptionId.toString()))
+                                db.writableDatabase.delete("consumption_buddies", "consumption_id = ?", arrayOf(editingConsumptionId.toString()))
+                                for (buddy in cFormBuddies) {
+                                    db.writableDatabase.insert("consumption_buddies", null, ContentValues().apply {
+                                        put("consumption_id", editingConsumptionId!!)
+                                        put("buddy_id", buddy.id)
+                                    })
+                                }
                             }
                             loadData(); showConsumptionForm = false; resetConsumptionForm()
                         }
@@ -434,12 +495,12 @@ fun CashRegisterDetailScreen(cashRegisterId: Long, onBack: () -> Unit) {
         }
     }
 
-    // ─── Buddy picker ───
+    // ─── Buddy picker (multi-select) ───
     if (showBuddyPicker) {
         val filtered = buddies.filter { it.name.contains(buddySearch, ignoreCase = true) }
         AlertDialog(
             onDismissRequest = { showBuddyPicker = false },
-            title = { Text("Seleccionar chica") },
+            title = { Text("Seleccionar chicas") },
             text = {
                 Column {
                     OutlinedTextField(value = buddySearch, onValueChange = { buddySearch = it }, label = { Text("Buscar") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
@@ -449,14 +510,25 @@ fun CashRegisterDetailScreen(cashRegisterId: Long, onBack: () -> Unit) {
                             item { Text("Sin resultados", modifier = Modifier.padding(vertical = 12.dp), color = MaterialTheme.colorScheme.onSurfaceVariant) }
                         } else {
                             items(filtered, key = { it.id }) { buddy ->
-                                Text(buddy.name, modifier = Modifier.fillMaxWidth().clickable { cFormBuddyId = buddy.id; cFormBuddyName = buddy.name; showBuddyPicker = false }.padding(vertical = 12.dp), style = MaterialTheme.typography.bodyLarge)
+                                val isSelected = buddy in cTempBuddies
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable { cTempBuddies = if (isSelected) cTempBuddies - buddy else cTempBuddies + buddy }
+                                        .padding(vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Checkbox(checked = isSelected, onCheckedChange = null)
+                                    Spacer(Modifier.width(8.dp))
+                                    Text(buddy.name, style = MaterialTheme.typography.bodyLarge)
+                                }
                                 HorizontalDivider()
                             }
                         }
                     }
                 }
             },
-            confirmButton = {},
+            confirmButton = { TextButton(onClick = { cFormBuddies = cTempBuddies; showBuddyPicker = false }) { Text("Listo") } },
             dismissButton = { TextButton(onClick = { showBuddyPicker = false }) { Text("Cancelar") } }
         )
     }

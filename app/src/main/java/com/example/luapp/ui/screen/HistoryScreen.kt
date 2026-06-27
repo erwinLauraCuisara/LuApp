@@ -62,7 +62,7 @@ fun HistoryScreen(onSelectRegister: (Long) -> Unit = {}, modifier: Modifier = Mo
                     cr.id,
                     cr.opened_at,
                     cr.closed_at,
-                    (SELECT COALESCE(SUM(amount), 0) FROM consumptions WHERE cash_register_id = cr.id),
+                    (SELECT COALESCE(SUM(amount + amount_qr), 0) FROM consumptions WHERE cash_register_id = cr.id),
                     (SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE cash_register_id = cr.id),
                     (SELECT COALESCE(SUM(pending_amount), 0) FROM consumptions WHERE cash_register_id = cr.id AND pending_amount > 0)
                 FROM cash_registers cr

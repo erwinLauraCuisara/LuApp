@@ -9,7 +9,7 @@
 - Sin iconos extendidos (`material-icons-extended`) — usar texto o los iconos básicos del core
 
 ## Base de datos
-- Helper: `data/db/DatabaseHelper.kt` — singleton, versión actual: **4**
+- Helper: `data/db/DatabaseHelper.kt` — singleton, versión actual: **6**
 - Versión de la BD en `DatabaseHelper` debe incrementarse con cada cambio de schema
 - `onUpgrade` usa migraciones incrementales (`if (oldVersion < N)`) excepto que se indique limpiar todo
 - FK activadas en `onConfigure` con `setForeignKeyConstraintsEnabled(true)`
@@ -29,7 +29,7 @@
 
 ## Modelos (`data/model/`)
 - `Buddy(id, name)`
-- `ConsumptionItem(id, concept, customerName?, buddyId?, buddyName?, amount, appointmentFee, pendingAmount?, details?, createdAt)`
+- `ConsumptionItem(id, concept, customerName?, buddyIds, buddyNames, amount, amountQr, appointmentFee, pendingAmount?, details?, createdAt)`
 - `ExpenseItem(id, concept, amount, details?, createdAt)`
 - `HistoryItem(id, openedAt, closedAt, consumptionTotal, expenseTotal, debtTotal)`
 
